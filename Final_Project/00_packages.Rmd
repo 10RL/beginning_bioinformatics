@@ -1,0 +1,37 @@
+---
+title: "00_packages"
+output: html_document
+date: "2026-09-08"
+---
+#Set Working directory
+```{r}
+knitr::opts_knit$set(
+  root.dir = "C:/Users/RL/OneDrive - University of Miami/Documents/Git/SCTLD-411Research-Project-Rebecca"
+)
+```
+
+#Loading Packages
+```{r}
+library(readr)
+if (!requireNamespace("BiocManager", quietly = TRUE))
+    install.packages("BiocManager")
+library(tidyverse)
+library(DESeq2)
+library(dplyr)
+library(reshape2)
+library(gridExtra)
+library(limma)
+library(ggpubr)
+#library(RCy3)
+library(sva)
+#library(WGCNA)
+library(mixOmics)
+install.packages("ipred")
+install.packages("recipes")
+if (!requireNamespace("caret", quietly = TRUE))
+    install.packages("caret")
+install.packages("ModelMetrics", type = "binary")
+install.packages("plotROC")
+library(plotROC)
+```
+

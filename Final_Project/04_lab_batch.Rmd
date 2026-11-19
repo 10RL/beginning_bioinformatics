@@ -1,0 +1,235 @@
+---
+title: "04_lab_batch"
+output: html_document
+date: "2026-11-12"
+---
+
+#Batch effects
+
+##Building a DESeq2 model for SVA Normalization
+```{r}
+#DESeq2 is used to create a normalized count matrix,that is used for SVA
+dds_null_lab <- DESeqDataSetFromMatrix(countData = new_filtered_counts_lab,
+                              colData = filtered_meta_lab,
+                              design = ~ 1) # ~1 models the gene expression without any constraints (this is a "blank" model)
+
+#Estimate factor size and normalize the dds model
+dds_null_lab <- estimateSizeFactors(dds_null_lab)
+
+normalized_counts_lab <- counts(dds_null_lab, normalized = TRUE)
+```
+
+
+
+##Finding unknown batch effects using sva
+```{r}
+#Create a model that saves variation from Final State, Genotype ID, and Real_timepoint???
+mod_lab <- model.matrix(~ Final_State + Genotype_ID, data = filtered_meta_lab) #Adding Real_timepoint.x removes an extra SV and adding Genotype_ID removes an extra 9.
+
+#Create a null model
+mod0_lab <- model.matrix(~ 1, data = filtered_meta_lab)
+
+#Remove genes with zero counts
+zeroes_removed_counts_lab <- normalized_counts_lab[
+  rowSums(normalized_counts_lab) > 0,] #keeps rows in normalized_counts_lab that have more than 0 genes.
+
+#Estimates the value of the surrogate variables. 
+sva_matrix_lab <- svaseq(
+  zeroes_removed_counts_lab,
+  mod = mod_lab,
+  mod0 = mod0_lab,
+  B = 200)
+```
+
+
+
+#Check whether SVs is associated with SCTLD_RNA
+```{r}
+#Loop through all 6 surrogate variables
+for (i in 1:6) {
+
+  # Create boxplot comparing each SV to Final_State
+  boxplot(sva_matrix_lab$sv[,i] ~ filtered_meta_lab$Final_State, #compares the first surrogate variable to SCTLD_RNA result
+          xlab = "Final State Status",
+          ylab = paste("Surrogate Variable", i),
+          main = paste("SV", i, "vs Final State Status"))
+
+  #Summarize significance of svs explained by/associated with Final_State
+  print(paste("Results for SV", i)) #prints string with the number of the correlated sv next to it
+  print(summary(lm(sva_matrix_lab$sv[,i] ~ filtered_meta_lab$Final_State)))} #lm is a linear regression model to determine significance/association
+```
+
+#Identify significant correlations
+```{r}
+#Create an empty vector to store p-values
+sv_pvalues <- numeric(6)
+
+#Loop through all 14 surrogate variables
+for (i in 1:6) {
+
+  #Run linear regression
+  model <- lm(sva_matrix_lab$sv[,i] ~ filtered_meta_lab$Final_State) #compares the first surrogate variable to SCTLD_RNA result
+
+  #Extract p-value for SCTLD_RNA
+  sv_pvalues[i] <- summary(model)$coefficients[2, 4]}
+
+names(sv_pvalues) <- paste0("SV", 1:5) #name each of the p-values in sv_pvalue_field with the surrogate variable
+significant_SVs <- names(sv_pvalues[sv_pvalues < 0.05]) #Identify significant svs
+significant_SVs
+```
+
+#Add SVs to metadata so it can be incorporated into the dds model
+```{r}
+meta_sva_lab <- cbind(
+  filtered_meta_lab,
+  SV = sva_matrix_lab$sv)
+```
+
+
+#Create a full DESeq2 model for vst transformation and limma
+```{r}
+dds_lab <- DESeqDataSetFromMatrix(
+  countData = new_filtered_counts_lab,
+  colData = meta_sva_lab,
+  design = ~ SV.1 + SV.2 + SV.3 + SV.4 + SV.6 + Genotype_ID + Final_State)
+
+dds_lab <- DESeq(dds_lab)
+
+res_lab <- results(
+  dds_lab,
+  contrast = c("Final_State", "Diseased", "Healthy"))
+
+
+#Check how many DEGs remain after removing Genotype_ID and SVs
+print(res_lab)
+
+sig_lab <- as.data.frame(res_lab)
+t <- sig_lab %>% filter(padj<0.1)
+
+print(t)
+```
+
+
+
+
+##VST Normalization and SVA Removal with Limma
+```{r}
+#Normalizing with vst
+vsd_lab <- vst(dds_lab, blind = FALSE) #blind = FALSE takes into model consideration
+
+#Extract transformed expression matrix
+vst_counts_lab <- assay(vsd_lab)
+
+#Batch correction using limma
+design_lab <- model.matrix(
+  ~ Final_State,
+  data = filtered_meta_lab)
+
+batch_corrected_lab <- removeBatchEffect(
+  vst_counts_lab,
+  batch = filtered_meta_lab$Genotype_ID, #categorical variable
+  covariates = sva_matrix_lab$sv[, c(1:4, 6), drop = FALSE], #numerical vector
+  design = design_lab)
+```
+
+
+
+##Samples - hierarchical clustering
+```{r}
+#Create clustering trees before and after batch correction
+htree_pre_lab  <- hclust(dist(t(vst_counts_lab)), method = "average")
+htree_post_lab <- hclust(dist(t(batch_corrected_lab)), method = "average")
+
+#check if sample order and metadata match
+stopifnot(all(colnames(vst_counts_lab) == colnames(batch_corrected_lab)))
+stopifnot(colnames(vst_counts_lab) == rownames(filtered_meta_lab))
+
+
+#Pre Batch Correction Lab
+range(htree_pre_lab$height)
+par(cex = 1.2)
+par(mar = c(5, 4, 4, 2))
+plot(htree_pre_lab,
+     main = "Clustering (Pre Batch Correction lab)",
+     sub = "", xlab = "",
+     cex.lab = 1.5, cex.axis = 1.2, cex.main = 1,
+     labels = filtered_meta_lab$Final_State)
+
+
+#Pose Batch Correction Lab
+range(htree_post_lab$height)
+par(cex = 1.2)
+par(mar = c(5, 4, 4, 2))
+plot(htree_post_lab,
+     main = "Clustering (Post Batch Correction lab)",
+     sub = "", xlab = "",
+     cex.lab = 1.5, cex.axis = 1.2, cex.main = 1,
+     labels = filtered_meta_lab$Final_State)
+```
+
+
+
+
+##PCA of the field data
+```{r}
+#Run PCA on transposed matrix (samples as rows)
+pca_lab <- prcomp(t(batch_corrected_lab), scale. = FALSE)
+
+#Variance explained
+percentVar <- round(
+  100 * (pca_lab$sdev^2 / sum(pca_lab$sdev^2)))[1:2]
+
+#Build PCA data frame for plotting
+pca_df_lab <- as.data.frame(pca_lab$x)
+pca_df_lab$sample <- rownames(pca_df_lab)
+pca_df_lab$Final_State <- filtered_meta_lab$Final_State[match(pca_df_lab$sample, rownames(filtered_meta_lab))] #pca_df_lab is a matrix that contains pc1 and pc1 coordinates for each sample. I added a sample column that matches Final_State to each of the coordinates. I need to add SCTLD_RNA so it will be color coded properly.
+
+#Plot
+ggplot(pca_df_lab, aes(x = PC1, y = PC2, color = Final_State)) +
+  geom_point(size = 3) +
+  theme_bw() +
+  scale_color_manual(values = c(
+    "Healthy" = "lightblue",
+    "Diseased" = "darkblue")) +
+  labs(
+    title = "PCA of Filtered Lab Counts (After Batch Correction)",
+    subtitle = "All filtered genes used (VST, blind = FALSE)",
+    x = paste0("PC1: ", percentVar[1], "% variance"),
+    y = paste0("PC2: ", percentVar[2], "% variance"))
+```
+
+
+```{r}
+#VST of vsd_field before batch correction
+vst_counts_lab <- assay(vsd_lab)
+
+#Run PCA on filtered field counts
+pca_lab <- prcomp(t(vst_counts_lab), scale. = FALSE)
+
+#Variance explained
+percentVar <- round(
+  100 * (pca_lab$sdev^2 / sum(pca_lab$sdev^2)))[1:2]
+
+#Build PCA data frame for plotting
+pca_df_lab <- as.data.frame(pca_lab$x)
+pca_df_lab$sample <- rownames(pca_df_lab)
+pca_df_lab$Final_State <- filtered_meta_lab$Final_State[match(pca_df_lab$sample, rownames(filtered_meta_lab))] #pca_df_lab is a matrix that contains pc1 and pc1 coordinates for each sample. I added a sample column that matches Final_State to each of the coordinates. I need to add SCTLD_RNA so it will be color coded properly.
+
+#Plot
+ggplot(pca_df_lab, aes(x = PC1, y = PC2, color = Final_State)) +
+  geom_point(size = 3) +
+  theme_bw() +
+  scale_color_manual(values = c(
+    "Healthy" = "lightblue",
+    "Diseased" = "darkblue")) +
+  labs(
+    title = "PCA of Filtered Lab Counts (Before Batch Correction)",
+    subtitle = "All filtered genes used (VST, blind = FALSE)",
+    x = paste0("PC1: ", percentVar[1], "% variance"),
+    y = paste0("PC2: ", percentVar[2], "% variance"))
+```
+
+
+
+
+

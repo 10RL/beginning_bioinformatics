@@ -1,0 +1,308 @@
+---
+title: "05_combine_field_lab"
+output: html_document
+date: "2026-11-13"
+---
+#Create counts_batch_corrected_combined
+##Load batch corrected datasets
+```{r}
+#filtered_counts_field <- read.csv("data/batch_mad_filtered_field.csv",row.names=1, check.names = FALSE)
+dim(batch_corrected_field)
+#filtered_counts_lab <- read.csv("data/batch_mad_filtered_lab.csv",row.names=1, check.names = FALSE)
+dim(batch_corrected_lab)
+
+#Store as a data frame so they won't be "coherced into a list"
+batch_corrected_field <- as.data.frame(batch_corrected_field)
+batch_corrected_lab <- as.data.frame(batch_corrected_lab)
+```
+
+
+##Create a column called ofav_gene so that daatasets may be combiend.
+```{r}
+#Creating column called ofav_gene
+##field
+batch_corrected_field$ofav_gene <- rownames(batch_corrected_field)
+dim(batch_corrected_field)
+
+names(batch_corrected_field)
+
+##lab
+batch_corrected_lab$ofav_gene <- rownames(batch_corrected_lab)
+dim(batch_corrected_lab)
+
+names(batch_corrected_lab)
+```
+
+
+##Combine datasets with inner_join so that only shared genes are kept
+```{r}
+counts_batch_corrected_combined <- batch_corrected_lab %>% inner_join(batch_corrected_field, by = "ofav_gene")
+
+dim(counts_batch_corrected_combined)
+counts_batch_corrected_combined <- as.data.frame(counts_batch_corrected_combined)
+names(counts_batch_corrected_combined)
+
+#Format the values in the ofav_gene column (the gene names) into the row names
+rownames(counts_batch_corrected_combined)<- counts_batch_corrected_combined$ofav_gene 
+dim(counts_batch_corrected_combined)
+names(counts_batch_corrected_combined)
+
+
+#Remove the now extra ofav_gene column (the column is still present eventhough ofav_gene are now the row names)
+counts_batch_corrected_combined<- counts_batch_corrected_combined %>% dplyr::select(-"ofav_gene") #eliminate column after using it for rownames
+names(counts_batch_corrected_combined)
+```
+
+____________________________________________________________________________________________________________________________________
+
+#Create filtered_meta_combined
+##Load filtered metadata
+```{r}
+#filtered_meta_field <- read.csv("data/filtered_meta_field.csv", row.names = 1, check.names = FALSE)
+dim(filtered_meta_field)
+#filtered_meta_lab <- read.csv("data/filtered_meta_lab.csv", row.names = 2, check.names = FALSE)
+dim(filtered_meta_lab)
+```
+
+
+##Add sample_ID column
+```{r}
+#Field
+filtered_meta_field$sample_ID <- rownames(filtered_meta_field)
+dim(filtered_meta_field)
+names(filtered_meta_field)
+
+#LabID
+filtered_meta_lab$sample_ID <- rownames(filtered_meta_lab)
+dim(filtered_meta_lab)
+names(filtered_meta_lab)
+```
+
+
+
+#Use the sample_ID column to combine the metadata
+```{r}
+#only samples shared between the two data sets are kept
+filtered_meta_combined <- dplyr::bind_rows(filtered_meta_lab, filtered_meta_field)
+dim(filtered_meta_combined)
+filtered_meta_combined <- as.data.frame(filtered_meta_combined) # save as dataframe
+
+#format metadata so that sample_ID are the rownames
+rownames(filtered_meta_combined) <- filtered_meta_combined$sample_ID
+dim(filtered_meta_combined)
+names(filtered_meta_combined)
+
+
+#Remove the now extra sample_ID column 
+filtered_meta_combined <- filtered_meta_combined %>% dplyr::select(-sample_ID)
+names(filtered_meta_combined)
+dim(filtered_meta_combined)
+
+#Remove column one
+filtered_meta_combined <- filtered_meta_combined %>% dplyr::select(-'...1')
+names(filtered_meta_combined)
+dim(filtered_meta_combined)
+```
+
+
+#Make sure the data lines up between filtered counts and filtered meta
+```{r}
+# Check if all sample IDs in count data are in the metadata
+all(colnames(counts_batch_corrected_combined) %in% rownames(filtered_meta_combined))  # Should be TRUE
+
+# Check if their order matches
+all(colnames(counts_batch_corrected_combined) == rownames(filtered_meta_combined))  # Ideally TRUE
+```
+
+
+#Add columns needed in metadata for MINT Analysis
+```{r}
+#To add a status column
+filtered_meta_combined <- filtered_meta_combined %>%
+  mutate(
+    status = case_when(
+      Final_State == "Diseased" ~ "affected",
+      SCTLD_RNA == "SCTLD_affected" ~"affected",
+      Final_State == "Healthy" ~ "unaffected",
+      SCTLD_RNA == "SCTLD_unaffected" ~"unaffected",
+      TRUE ~ NA_character_  # fallback for unexpected combinations
+    )
+  )
+
+#To add a data column
+#!!!!!!!!!!!!!!!!!!! I know at least one SV (which I removed) is related to Real_timepoint.x. Maybe redo dds model to include that?
+filtered_meta_combined <- filtered_meta_combined %>%
+  mutate(
+    data = case_when(
+      SP3 == "TRUE" ~ "RRC",
+      Real_timepoint.x == "Pre_Early_Exposure" ~"Mote_CIL",
+      Real_timepoint.x == "Early_Exposure" ~ "Mote_CIL",
+      TRUE ~ NA_character_  # fallback for unexpected combinations
+    )
+  )
+
+
+#To add status_data column
+filtered_meta_combined <- filtered_meta_combined %>%
+  mutate(
+    status_data = case_when(
+      status == "affected" & data == "Mote_CIL" ~ "affected_lab",
+      status == "affected" & data == "RRC" ~ "affected_field",
+      status == "unaffected" & data == "Mote_CIL" ~ "unaffected_lab",
+      status == "unaffected" & data == "RRC" ~ "unaffected_field",
+      TRUE ~ NA_character_  # fallback for unexpected combinations
+    )
+  )
+
+
+#Add a gene_name column to filtered_meta_combined
+filtered_meta_combined$gene_name <- rownames(counts_batch_corrected_combined)[
+  match(rownames(filtered_meta_combined), colnames(counts_batch_corrected_combined))]
+```
+
+
+#Write CSV
+```{r}
+#counts_batch_corrected_combined
+##write.csv(counts_batch_corrected_combined, "data/counts_batch_corrected_combined", row.names = TRUE)
+
+#filtered_meta_combined
+##write.csv(filtered_meta_combined, "data/filtered_meta_combined.csv", row.names = TRUE)
+```
+
+
+____________________________________________________________________________________________________________________________________
+
+#Create filtered_counts_combined for DESeq2/PCA Analysis
+##filtered datasets
+```{r}
+dim(filtered_counts_field)
+dim(filtered_counts_lab)
+
+#Store as a data frame so they won't be "coherced into a list"
+filtered_counts_field <- as.data.frame(filtered_counts_field)
+filtered_counts_lab <- as.data.frame(filtered_counts_lab)
+```
+
+
+##Create a column called ofav_gene so that daatasets may be combiend.
+```{r}
+#Creating column called ofav_gene
+##field
+filtered_counts_field$ofav_gene <- rownames(filtered_counts_field)
+dim(filtered_counts_field)
+
+names(filtered_counts_field)
+
+##lab
+filtered_counts_lab$ofav_gene <- rownames(filtered_counts_lab)
+dim(filtered_counts_lab)
+
+names(filtered_counts_lab)
+```
+
+
+##Combine datasets with inner_join so that only shared genes are kept
+```{r}
+counts_combined <- filtered_counts_lab %>% inner_join(filtered_counts_field, by = "ofav_gene")
+
+dim(counts_combined)
+counts_combined <- as.data.frame(counts_combined)
+names(counts_combined)
+
+#Format the values in the ofav_gene column (the gene names) into the row names
+rownames(counts_combined)<- counts_combined$ofav_gene 
+dim(counts_combined)
+names(counts_combined)
+
+
+#Remove the now extra ofav_gene column (the column is still present eventhough ofav_gene are now the row names)
+counts_combined<- counts_combined %>% dplyr::select(-"ofav_gene") #eliminate column after using it for rownames
+names(counts_combined)
+```
+
+
+##Create PCA of combined data
+###Create DESeq2 Model
+```{r}
+dds_combined <- DESeqDataSetFromMatrix(
+  countData = counts_combined,
+  colData = filtered_meta_combined,
+  design = ~ 0 + status_data
+)
+
+dds_combined <- DESeq(dds_combined)
+
+resultsNames(dds_combined)
+
+res_combined_field <- results(dds_combined, contrast = c("status_data", "affected_field","unaffected_field"))
+
+summary(res_combined_field)
+
+res_combined_lab <- results(dds_combined, contrast = c("status_data", "affected_lab","unaffected_lab"))
+
+summary(res_combined_lab)
+
+
+#Check how many DEGs remain after removing location and SVs
+print(res_combined_field)
+print(res_combined_lab)
+
+sig_combined_field <- as.data.frame(res_combined_field)
+w <- sig_combined_field %>% filter(padj<0.1)
+print(w) #Only has 1 significantly differentially expressed gene?????!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+
+sig_combined_lab <- as.data.frame(res_combined_lab)
+q <- sig_combined_lab %>% filter(padj<0.1)
+print(q)
+```
+
+
+###Normalize with vst for PCA
+```{r}
+vsd_combined <- vst(dds_combined, blind = FALSE) #blind = FALSE takes into model consideration
+```
+
+
+###PCA Plot
+```{r}
+# Extract VST-transformed expression matrix BEFORE batch correction
+vst_counts_combined <- assay(vsd_combined)
+
+# Run PCA on filtered combined counts
+pca_combined <- prcomp(t(vst_counts_combined), scale. = FALSE)
+
+# Variance explained
+percentVar <- round(
+  100 * (pca_combined$sdev^2 / sum(pca_combined$sdev^2))
+)[1:2]
+
+# Build PCA dataframe
+pca_df_combined <- as.data.frame(pca_combined$x)
+pca_df_combined$sample <- rownames(pca_df_combined)
+
+pca_df_combined$status_data <- filtered_meta_combined$status_data[
+  match(pca_df_combined$sample, rownames(filtered_meta_combined))
+]
+
+
+# Plot
+ggplot(pca_df_combined, aes(x = PC1, y = PC2, color = status_data)) +
+  geom_point(size = 3) +
+  theme_bw() +
+  scale_color_manual(values = c(
+    "unaffected_field" = "lightgreen",
+    "affected_field" = "darkgreen",
+    "unaffected_lab" = "lightblue",
+    "affected_lab" = "darkblue"
+  )) +
+  labs(
+    title = "PCA of Filtered Combined Counts (No Batch Correction)",
+    subtitle = "All filtered genes used (VST, blind = FALSE)",
+    x = paste0("PC1: ", percentVar[1], "% variance"),
+    y = paste0("PC2: ", percentVar[2], "% variance")
+  )
+```
+
+
+

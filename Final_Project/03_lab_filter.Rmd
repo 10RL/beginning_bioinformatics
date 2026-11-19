@@ -1,0 +1,79 @@
+---
+title: "03_lab_filter"
+output: html_document
+date: "2026-11-10"
+---
+#Loading lab data
+```{r}
+lab_counts <- read.csv("../data/counts_clean_12192024.csv", row.names = 1, check.names = FALSE)
+
+lab_meta <- read.csv("../data/metadata_clean_12192024.csv", row.names = 1)
+```
+
+
+#Remove unnecessary samples (Pre_Exposure and Control) 
+```{r}
+filtered_meta_lab <- lab_meta %>%
+  filter(
+    (is.na(Real_timepoint.x) | Real_timepoint.x != "Pre_Exposure") &
+    (is.na(Final_State) | Final_State != "Control")
+  )
+
+#write.csv(filtered_meta_lab, "data/filtered_meta_lab.csv", row.names = TRUE)
+
+#Remove the correlated samples from lab_counts
+filtered_counts_lab <- lab_counts[, rownames(filtered_meta_lab), drop = FALSE]
+```
+
+
+#Filter out low count genes ##Adjusted numbers until the plots looked how I want
+```{r}
+#Create gene filter to keep genes with counts >= 20 in at least 10 samples
+keep_genes_lab <- rowSums(filtered_counts_lab >= 15) >= 13
+
+#Apply the gene filter to filtered_counts_lab
+new_filtered_counts_lab <- filtered_counts_lab[keep_genes_lab, ]
+
+#Output of filtering summary: number and percent of genes removed
+cat("Number of genes after filtering:", nrow(new_filtered_counts_lab), "\n")
+cat("Percentage of genes removed:", round(sum(!keep_genes_lab) / length(keep_genes_lab) * 100, 2), "%\n")
+```
+
+#Determine the proportion of zeroes for filtered and unfiltered lab gene counts
+```{r}
+#Proportion of zeros before filtering
+prop_zeros_before_lab <- sum(filtered_counts_lab == 0) / (nrow(filtered_counts_lab) * ncol(filtered_counts_lab))
+
+#Proportion of zeros after filtering
+prop_zeros_after_lab <- sum(new_filtered_counts_lab == 0) / (nrow(new_filtered_counts_lab) * ncol(new_filtered_counts_lab))
+
+cat("Proportion of zeros before filtering:", round(prop_zeros_before_lab * 100, 2), "%\n") #38.47%
+cat("Proportion of zeros after filtering:", round(prop_zeros_after_lab * 100, 2), "%\n")   #36.88%
+```
+
+
+#Create plots to compare filtered and unfiltered gene counts
+```{r}
+#Plot distribution of total counts per gene (log10 scale) before filtering
+gene_totals_before_lab <- rowSums(filtered_counts_lab)
+hist(log10(gene_totals_before_lab + 1), breaks = 50,
+     main = "Gene Expression Distribution (Before Filtering)",
+     xlab = "log10(Total Counts per Gene + 1)", col = "purple",
+     xlim = c(2,7),
+     ylim = c(0,900))
+
+#Plot distribution of total counts per gene (log10 scale) after filtering
+gene_totals_after_lab <- rowSums(new_filtered_counts_lab)
+hist(log10(gene_totals_after_lab + 1), breaks = 50,
+     main = "Gene Expression Distribution (After Filtering)",
+     xlab = "log10(Total Counts per Gene + 1)", col = "gold",
+     xlim = c(2,7),
+     ylim = c(0,900))
+```
+
+
+Check that rows and columns match
+```{r}
+all(rownames(filtered_meta_lab) %in% colnames(new_filtered_counts_lab))
+all(rownames(filtered_meta_lab) == colnames(new_filtered_counts_lab))
+```

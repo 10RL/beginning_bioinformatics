@@ -1,0 +1,97 @@
+---
+title: "01_field_filter"
+output: html_document
+date: "2026-10-28"
+---
+
+#Set Working directory
+```{r}
+setwd("C:/Users/RL/OneDrive - University of Miami/Documents/Git/SCTLD-411Research-Project-Rebecca")
+```
+
+
+#Loading field data
+```{r}
+field_counts <- read.csv("../data/counts_rebcca.csv", row.names = 1, check.names = FALSE) #check.names = FALSE tells R not to alter the row names when the file is uploaded.
+
+field_meta <- read.csv("../data/metadata_rebecca.csv", row.names = 1)
+```
+
+
+#Remove unnecessary samples (SP1 and SP2) 
+```{r}
+#Keep only samples from SP3
+filtered_meta_field <- field_meta %>% filter((SP3 == TRUE))
+
+#write.csv(filtered_meta_field, "data/filtered_meta_field.csv", row.names = TRUE)
+
+#Keep only SP3 samples in field_counts
+filtered_counts_field <- field_counts[, rownames(filtered_meta_field), drop = FALSE] #keep only columns in field_counts that match the rownames of filtered_meta_field. drop = FALSE keeps filtered_counts_field a dataframe.
+```
+
+
+#Filter out low count genes ##Adjusted numbers until the plots looked how I want
+```{r}
+#Create gene filter to keep genes with counts >= 20 in at least 11 samples
+keep_genes_field <- rowSums(filtered_counts_field >= 20) >= 11 # 11 SCTLD_Unaffected samples. 32 SCTLD_Affected samples.
+
+#Apply the gene filter to filtered_counts_field
+new_filtered_counts_field <- filtered_counts_field[keep_genes_field, ]
+
+#Output of filtering summary: number and percent of genes removed
+cat("Number of genes after filtering:", nrow(new_filtered_counts_field), "\n")
+cat("Percentage of genes removed:", round(sum(!keep_genes_field) / length(keep_genes_field) * 100, 2), "%\n")
+```
+
+#Determine the proportion of zeroes for filtered and unfiltered field gene counts
+```{r}
+#Proportion of zeros before filtering
+prop_zeros_before_field <- sum(filtered_counts_field == 0) / (nrow(filtered_counts_field) * ncol(filtered_counts_field))
+
+#Proportion of zeros after filtering
+prop_zeros_after_field <- sum(new_filtered_counts_field == 0) / (nrow(new_filtered_counts_field) * ncol(new_filtered_counts_field))
+
+cat("Proportion of zeros before filtering:", round(prop_zeros_before_field * 100, 2), "%\n") #14.27%
+cat("Proportion of zeros after filtering:", round(prop_zeros_after_field * 100, 2), "%\n")   #12.76%
+```
+
+
+#Create plots to compare filtered and unfiltered gene counts
+```{r}
+#Plot distribution of total counts per gene (log10 scale) before filtering
+gene_totals_before_field <- rowSums(filtered_counts_field)
+hist(log10(gene_totals_before_field + 1), breaks = 50,
+     main = "Gene Expression Distribution (Before Filtering)",
+     xlab = "log10(Total Counts per Gene + 1)", col = "purple",
+     xlim = c(2,7),
+     ylim = c(0,900))
+
+#Plot distribution of total counts per gene (log10 scale) after filtering
+gene_totals_after_field <- rowSums(new_filtered_counts_field)
+hist(log10(gene_totals_after_field + 1), breaks = 50,
+     main = "Gene Expression Distribution (After Filtering)",
+     xlab = "log10(Total Counts per Gene + 1)", col = "gold",
+     xlim = c(2,7),
+     ylim = c(0,900))
+```
+
+Check that rows and columns match
+```{r}
+all(rownames(filtered_meta_field) %in% colnames(new_filtered_counts_field))
+all(rownames(filtered_meta_field) == colnames(new_filtered_counts_field))
+```
+
+
+```{r}
+######WRITE AND LOAD NEW FILTERED DATA
+#write.csv(filtered_meta_field, "data/filtered_meta_field", row.names = TRUE)
+#write.csv(new_filtered_counts_field, "data/filtered_counts_field.csv")
+
+
+#filtered_meta_field <- read.csv("data/filtered_meta_field", row.names = 1)
+#filtered_counts_field <- read.csv("data/filtered_counts_field.csv", row.names = 1, check.names = FALSE)
+
+#write.csv(new_filtered_counts_field, "data/filtered_counts_field.csv", row.names = TRUE)
+```
+
+
