@@ -8,12 +8,11 @@ date: "2026-11-13"
 #The outcome vector X:
 X <- t(counts_batch_corrected_combined) #MINT expects samples as rows and genes as columns, so the data must be transposed
 
-
 #The outcome vector Y:
 outcome <- filtered_meta_combined$status #status is affected or unaffected
 
 #Defining where the data comes from:
-study <- filtered_meta_combined$data #data is RRC or Mote_CIL. !!!!!!!!!!!!!!Real_timepoint.x also comes into play here
+study <- filtered_meta_combined$data #data is RRC or Mote_CIL. 
 
 #Experiemental Design
 table(outcome,study)
@@ -35,12 +34,10 @@ ggplot(data = df, aes(x = Outcome, y = Count, fill = Study)) +
     title = "Sample Distribution by Outcome and Study",
     x = "Outcome",
     y = "Number of Samples",
-    fill = "Study"
-  ) +
+    fill = "Study") +
   theme_minimal() +
   theme(
-    plot.title = element_text(hjust = 0.5)
-  ) +
+    plot.title = element_text(hjust = 0.5)) +
   scale_fill_manual(values = c("Mote_CIL" = "#576CB9", "RRC" = "#48A948"))
 
 ```
@@ -90,6 +87,8 @@ test_strat <- setdiff(seq_len(nrow(X)), train_strat) #takes the samples from 1-1
 X_train <- X[train_strat,] #the gene counts
 outcome_train <- outcome[train_strat] #the status of the samples after exposure
 study_train <- study[train_strat] #the sample origin
+outcome_train <- factor(outcome_train)
+study_train <- factor(study_train)
 
 
 #Test data
@@ -111,6 +110,17 @@ nrow(X_test)
 ```
 
 ______________________________________________________________________________________________________________________________________
+#Tuning
+
+##Create a basic mint model for tuning
+```{r}
+basic_mint <- mint.splsda(X=X_train, Y=outcome_train, study=study_train, ncomp = 10)
+
+basic_mint_perf <- perf(basic_mint,  dist = c("max.dist", "centroids.dist", "mahalanobis.dist"))
+plot(basic_mint_perf)
+print(basic_mint_perf$global.error)
+```
+
 
 ##Tune the model using only the training data
 ```{r}
@@ -150,25 +160,20 @@ plot(tune_mint_splsda3, sd=FALSE) #sd = false due to LOO CV
 ```
 The example pipeline doesn't pre-test a dist to use in the tuning model. I realized I might need to specify a different distance while following a splsda pipeline. After looking at these three distance plots, the one with the lowest BER is mahalanobis with 8 components.
 
-```{r}
-#sPLS-DA model
-mint_splsda_tune <- mint.splsda(X=X_tune, Y=outcome_tune, study=study_tune, ncomp = 2)
-
-mint_splsda_perf_tune <- perf(mint_splsda, folds = 2, nrepeat =50)
-plot(mint_splsda_perf)
-```
 
 
 
 
 ##Extract the optimal keepX parameter
 ```{r}
-optimal_ncomp <- 8
+optimal_ncomp <- 7
 
 optimal_keepX <-tune_mint_splsda1$choice.keepX[1:optimal_ncomp]
 optimal_keepX
 ```
 ncomp is the number of components to include in the model. optimal_keepx is determining the the optimal amount of features for each component
+
+
 
 #Train MINT sPLS-DA model with the tuned data
 ```{r}
@@ -193,13 +198,10 @@ plotIndiv(mint_splsda, study='all.partial', legend = TRUE,
 ####Correlation Circle plots
 ```{r}
 #Components 1 vs 2
-plotVar(mint_splsda, title = "PLS Correlations - SVs Included", cutoff = 0.5) 
+plotVar(mint_splsda, comp = c(1,2), title = "Correlation Circle Plot: Comp 1 vs Comp 2", cutoff = 0.5)
 
 #Components 1 vs components 3
 plotVar(mint_splsda, comp = c(1,3), title = "Correlation Circle Plot: Comp 1 vs Comp 3", cutoff = 0.5)
-
-#Components 1 vs components 4
-plotVar(mint_splsda, comp = c(1,4), title = "Correlation Circle Plot: Comp 1 vs Comp 4", cutoff = 0.5)
 
 #Components 2 vs components 3
 plotVar(mint_splsda, comp = c(2,3), title = "Correlation Circle Plot: Comp 2 vs Comp 3", cutoff = 0.5)
@@ -207,8 +209,8 @@ plotVar(mint_splsda, comp = c(2,3), title = "Correlation Circle Plot: Comp 2 vs 
 #Components 2 vs components 4
 plotVar(mint_splsda, comp = c(2,4), title = "Correlation Circle Plot: Comp 2 vs Comp 4", cutoff = 0.5)
 
-#Components 3 vs components 4
-plotVar(mint_splsda, comp = c(3,4), title = "Correlation Circle Plot: Comp 3 vs Comp 4", cutoff = 0.5)
+#Components 2 vs components 7
+plotVar(mint_splsda, comp = c(2,7), title = "Correlation Circle Plot: Comp 2 vs Comp 7", cutoff = 0.5)
 ```
 
 
@@ -230,15 +232,13 @@ name5<- plotLoadings(mint_splsda, contrib = "max", method = "mean", comp = 5, le
 name6<- plotLoadings(mint_splsda, contrib = "max", method = "mean", comp = 6, legend = T, study = "all.partial", title = "Contribution on comp 6", subtitle = c("Mote_CIL", "RRC"))
 
 name7<- plotLoadings(mint_splsda, contrib = "max", method = "mean", comp = 7, legend = T, study = "all.partial", title = "Contribution on comp 7", subtitle = c("Mote_CIL", "RRC"))
-
-name8<- plotLoadings(mint_splsda, contrib = "max", method = "mean", comp = 8, legend = T, study = "all.partial", title = "Contribution on comp 8", subtitle = c("Mote_CIL", "RRC"))
 ```
 
 
 #Test MINT sPLS-DA model with the tuned data
 ##Determine which distance metric to use
 ```{r}
-mint_splsda_perf <- perf(mint_splsda, folds = 2, nrepeat =50)
+mint_splsda_perf <- perf(mint_splsda, folds = 3, nrepeat =50)
 plot(mint_splsda_perf)
 ```
 
@@ -282,6 +282,8 @@ lab_cm <- confusionMatrix(
   positive = "affected")
 lab_cm
 ```
+
+
 
 ###Plot the Confusion Matrices
 ```{r}
@@ -329,7 +331,7 @@ ggplot(data = lab_df, aes(x = Reference, y = Prediction, fill = Freq))+
 ##AUC Plots
 ```{r}
 #Get test prediction scores from my 8 components. (test_pred_scores will be a subset of mint_splsda_pred that only contains info on the first 8 components.)
-test_pred_scores <- mint_splsda_pred$predict[,"affected",8]
+test_pred_scores <- mint_splsda_pred$predict[,"affected",2]
 
 #Create a data frame with the predicted probabilities for roc analysis
 roc_data <- data.frame (outcome = as.integer(outcome_test == "affected"), test_pred_scores, study_test)
@@ -364,6 +366,6 @@ roc_lab
 ```
 
 
-
+Similar results between using max.dist to tune with 2 components and mehalanoids.dist to tune with 8 components. I will use whichever one returns the most significant genes.
 
 

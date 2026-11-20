@@ -117,45 +117,39 @@ all(colnames(counts_batch_corrected_combined) == rownames(filtered_meta_combined
 
 #Add columns needed in metadata for MINT Analysis
 ```{r}
-#To add a status column
+#Add a status column
 filtered_meta_combined <- filtered_meta_combined %>%
-  mutate(
+  mutate( #creates new columns with the following components
     status = case_when(
       Final_State == "Diseased" ~ "affected",
       SCTLD_RNA == "SCTLD_affected" ~"affected",
       Final_State == "Healthy" ~ "unaffected",
       SCTLD_RNA == "SCTLD_unaffected" ~"unaffected",
-      TRUE ~ NA_character_  # fallback for unexpected combinations
-    )
-  )
+      TRUE ~ NA_character_ )) # fallback for unexpected combinations
 
-#To add a data column
-#!!!!!!!!!!!!!!!!!!! I know at least one SV (which I removed) is related to Real_timepoint.x. Maybe redo dds model to include that?
+#Add a data column
 filtered_meta_combined <- filtered_meta_combined %>%
-  mutate(
+  mutate( #creates new columns with the following components
     data = case_when(
       SP3 == "TRUE" ~ "RRC",
       Real_timepoint.x == "Pre_Early_Exposure" ~"Mote_CIL",
       Real_timepoint.x == "Early_Exposure" ~ "Mote_CIL",
-      TRUE ~ NA_character_  # fallback for unexpected combinations
-    )
-  )
+      TRUE ~ NA_character_ )) # fallback for unexpected combinations
 
 
-#To add status_data column
+#Add status_data column
 filtered_meta_combined <- filtered_meta_combined %>%
-  mutate(
+  mutate( #creates new columns with the following components
     status_data = case_when(
       status == "affected" & data == "Mote_CIL" ~ "affected_lab",
       status == "affected" & data == "RRC" ~ "affected_field",
       status == "unaffected" & data == "Mote_CIL" ~ "unaffected_lab",
       status == "unaffected" & data == "RRC" ~ "unaffected_field",
-      TRUE ~ NA_character_  # fallback for unexpected combinations
-    )
-  )
+      TRUE ~ NA_character_ )) # fallback for unexpected combinations
 
 
-#Add a gene_name column to filtered_meta_combined
+#Add a gene_name column to filtered_meta_combined!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!1
+##Multiple genes correlate to each sample, so this doesn't make sense??
 filtered_meta_combined$gene_name <- rownames(counts_batch_corrected_combined)[
   match(rownames(filtered_meta_combined), colnames(counts_batch_corrected_combined))]
 ```
@@ -228,8 +222,7 @@ names(counts_combined)
 dds_combined <- DESeqDataSetFromMatrix(
   countData = counts_combined,
   colData = filtered_meta_combined,
-  design = ~ 0 + status_data
-)
+  design = ~ 0 + status_data)
 
 dds_combined <- DESeq(dds_combined)
 
@@ -266,24 +259,22 @@ vsd_combined <- vst(dds_combined, blind = FALSE) #blind = FALSE takes into model
 
 ###PCA Plot
 ```{r}
-# Extract VST-transformed expression matrix BEFORE batch correction
+#VST of vsd_field before batch correction
 vst_counts_combined <- assay(vsd_combined)
 
-# Run PCA on filtered combined counts
+#PCA on filtered combined counts
 pca_combined <- prcomp(t(vst_counts_combined), scale. = FALSE)
 
-# Variance explained
+#Variance explained
 percentVar <- round(
-  100 * (pca_combined$sdev^2 / sum(pca_combined$sdev^2))
-)[1:2]
+  100 * (pca_combined$sdev^2 / sum(pca_combined$sdev^2)))[1:2]
 
-# Build PCA dataframe
+#Build PCA df
 pca_df_combined <- as.data.frame(pca_combined$x)
 pca_df_combined$sample <- rownames(pca_df_combined)
 
 pca_df_combined$status_data <- filtered_meta_combined$status_data[
-  match(pca_df_combined$sample, rownames(filtered_meta_combined))
-]
+  match(pca_df_combined$sample, rownames(filtered_meta_combined))]
 
 
 # Plot
@@ -294,14 +285,12 @@ ggplot(pca_df_combined, aes(x = PC1, y = PC2, color = status_data)) +
     "unaffected_field" = "lightgreen",
     "affected_field" = "darkgreen",
     "unaffected_lab" = "lightblue",
-    "affected_lab" = "darkblue"
-  )) +
+    "affected_lab" = "darkblue")) +
   labs(
     title = "PCA of Filtered Combined Counts (No Batch Correction)",
     subtitle = "All filtered genes used (VST, blind = FALSE)",
     x = paste0("PC1: ", percentVar[1], "% variance"),
-    y = paste0("PC2: ", percentVar[2], "% variance")
-  )
+    y = paste0("PC2: ", percentVar[2], "% variance"))
 ```
 
 
